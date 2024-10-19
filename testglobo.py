@@ -12,19 +12,21 @@ Objetivos:
 '''
 # %% Lendo e corrigindo o dataset
 import pandas as pd
-import numpy
+import numpy as np
 import matplotlib.pyplot as plt
+import warnings
 import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
 import statsmodels.api as sm
 pd.set_option('display.max_columns', None)
 df = pd.read_excel('/mnt/d/documentos/globo/base_desafio_cartola.xlsx', sheet_name='in')
 colunas = list(df.columns.str.split(","))[0]
 df = df[df.columns[0]].str.split(",").apply(lambda x: pd.Series(x))
 df.columns = colunas
-
+del colunas
 # >>> colunas
 # ['user', 'sexo', 'uf', 'idade', 'dias', 'pviews', 'visitas', 'tempo_total', 'device', 'futebol', 'futebol_intenacional',
 # 'futebol_olimpico', 'blog_cartola', 'atletismo', 'ginastica', 'judo', 'natacao', 'basquete', 'handebol', 'volei', 'tenis',
@@ -61,15 +63,15 @@ df['cartola_status'] = df['cartola_status'].astype('category')
 # Corrigindo encoding
 df['cartola_status'] = df['cartola_status'].str.encode('latin1').str.decode('utf-8')
 # Localizando valores nulos nas variáveis categóricas
-df.loc[df['sexo'] == 'NA', 'sexo'] = numpy.nan
-df.loc[df['uf'] == 'NA', 'uf'] = numpy.nan
-df.loc[df['device'] == 'NA', 'device'] = numpy.nan
-df.loc[df['cartola_status'] == 'NA', 'cartola_status'] = numpy.nan
+df.loc[df['sexo'] == 'NA', 'sexo'] = np.nan
+df.loc[df['uf'] == 'NA', 'uf'] = np.nan
+df.loc[df['device'] == 'NA', 'device'] = np.nan
+df.loc[df['cartola_status'] == 'NA', 'cartola_status'] = np.nan
 # Na na variável 'cartola_status' não apresenta informação relevante e será retirada
 df = df.loc[df['cartola_status'].notna(), :]
 
 # Localizando valores nulos nas variáveis numéricas
-df.loc[df['tempo_total'] == 'NA', 'tempo_total'] = numpy.nan
+df.loc[df['tempo_total'] == 'NA', 'tempo_total'] = np.nan
 
 # %% Análise descritiva
 df['cartola_status'].unique()
@@ -82,6 +84,8 @@ df.describe(include='all')
 df['sexo'].value_counts()
 df['uf'].value_counts()
 df['cartola_status'].value_counts(dropna = False)
+# Remoção de outliers
+df = df.loc[((df['idade'] < 100) & (df['idade'] > 0)) | df['idade'].isna(), :]
 
 len(df.loc[:,'user']) == len(df.loc[:,'user'].unique())
 df.describe()
@@ -89,8 +93,7 @@ df.describe()
 
 # %% Regressão Logística
 # Inverterei o protocolo de primeiro fazer a analise exploratória e depois o treino do modelo preditivo,
-# pois utilizarei os coeficientes para definir o que será exposto nos gráficos.
-# Utilizarei a regressão logística como preditivo simples
+# pois utilizarei a significância da variáveis para definir o que será exposto nos gráficos.
 # Há dois caminhos para o usuário assinar o cartola Pro, da Cartola Free para cartola Pro e Não Cartola para cartola Pro.
 # A variável dependente será 'cartola_status' e as variáveis independentes serão as demais.
 # Separando as bases e balanceando as amostras
@@ -115,7 +118,6 @@ n_cartola['device'] = device_codes
 n_cartola['device_pc_e_m'] = (n_cartola['device'] == 1).astype('int8')
 n_cartola['device_m'] = (n_cartola['device'] == 0).astype('int8')
 n_cartola.drop(columns = ['device'], inplace = True)
-print(device_mapping)
 n_cartola['cartola_status'].value_counts(dropna = False)
 if list(n_cartola['cartola_status'].cat.categories) != ['Não Cartola', 'Cartola Pro']:
     n_cartola['cartola_status'] = n_cartola['cartola_status'].cat.reorder_categories(
@@ -130,102 +132,167 @@ cartola_free = df.loc[df['cartola_status'] != 'Não Cartola', ['sexo', 'uf', 'id
 valores = cartola_free['cartola_status'].value_counts(dropna = False)
 cartola_free = cartola_free.groupby(['cartola_status']).sample(n = min(list(valores)), random_state = 42)
 cartola_free['cartola_status'] = cartola_free['cartola_status'].astype('category')
-for uf in sorted(cartola_free['uf'].unique().tolist())[1:]:
-    cartola_free[uf] = (cartola_free['uf'] == uf).astype('int8')
+uf_mapping = cartola_free['uf'].unique().tolist()
+uf_mapping = {uf: idx for idx, uf in enumerate(uf_mapping)}
+cartola_free['uf'] = cartola_free['uf'].map(uf_mapping).astype('int8')
 cartola_free['device'] = cartola_free['device'].map(device_mapping).astype('int8')
 cartola_free['device_pc_e_m'] = (cartola_free['device'] == 1).astype('int8')
 cartola_free['device_m'] = (cartola_free['device'] == 0).astype('int8')
-cartola_free.drop(columns = ['device'], inplace = True)
+sexo_mapping = {'F': 0, 'M': 1}
+cartola_free['sexo'] = cartola_free['sexo'].map(sexo_mapping).astype('int8')
+cartola_free.drop(columns = ['device',
+                            'tempo_total',
+                            'sexo'], inplace = True)
 cartola_free['cartola_status'].value_counts(dropna = False)
 if list(cartola_free['cartola_status'].cat.categories) != ['Cartola Free', 'Cartola Pro']:
     cartola_free['cartola_status'] = cartola_free['cartola_status'].cat.reorder_categories(
     ['Cartola Free', 'Cartola Pro'], 
     ordered=True)
+# dataset = n_cartola.copy(deep=True)
+def preditivo_simple(dataset: pd.DataFrame, var_interesse:str = 'cartola_status', save_pickle: bool = False):
+    warnings.filterwarnings('ignore')
+    # Definindo variáveis independentes (X) e dependente (y)
+    X = dataset.loc[:,var_interesse != dataset.columns]
+    y = dataset[var_interesse].cat.codes  # Convertendo a variável categórica para códigos numéricos
+    # Dividindo o dataset em treino e teste
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    # Para obter a significância dos coeficientes, usamos statsmodels
+    X_const = sm.add_constant(X_train)  # Adicionar uma constante para o intercepto
+    modelo_stats = sm.Logit(y_train, X_const).fit()
+    summary_df = modelo_stats.summary2().tables[1]
+    p_values = summary_df[summary_df['P>|z|'] < 0.05]
+    p_values['multiplicador'] = p_values.loc[:,'Coef.'].map(np.exp)
+    p_values = p_values.loc[:,['multiplicador', 'P>|z|']]
+    significant_features = p_values.index.tolist()
+    # Para obter a significância dos coeficientes, usamos statsmodels
+    X_const = sm.add_constant(X_train)[significant_features]  # Adicionar uma constante para o intercepto
+    modelo_stats = sm.Logit(y_train, X_const).fit()
+    if save_pickle:
+        modelo_stats.save('modelo_stats.pickle')
+    multiplicador = modelo_stats.summary2().tables[1]
+    multiplicador['multiplicador'] = multiplicador.loc[:,'Coef.'].map(np.exp)
+    # Fazendo previsões
+    y_pred = modelo_stats.predict(sm.add_constant(X_test)[significant_features])
+    # Convertendo para valores binários
+    y_pred = (y_pred >= 0.5).astype(int)
+    # Avaliando o modelo
+    print(f"{multiplicador.loc[:,'multiplicador']}\n{classification_report(y_test, y_pred)}")
 
-# Definindo variáveis independentes (X) e dependente (y)
-X = n_cartola.loc[:,'cartola_status' != n_cartola.columns]
-y = n_cartola['cartola_status'].cat.codes  # Convertendo a variável categórica para códigos numéricos
+print('Cartola Free')
+preditivo_simple(cartola_free)
+print('Não Cartola')
+preditivo_simple(n_cartola)
+# 
+# >>> print('Cartola Free')
+# Cartola Free
+# >>> preditivo_simple(cartola_free)
+# Optimization terminated successfully.
+#          Current function value: 0.634276
+#          Iterations 7
+# Optimization terminated successfully.
+#          Current function value: 0.647480
+#          Iterations 6
+# const              0.251266
+# idade              1.033344
+# blog_cartola       1.000055
+# home_olimpiadas    0.999997
+# device_pc_e_m      2.287302
+# Name: multiplicador, dtype: float64
+#               precision    recall  f1-score   support
+# 
+#            0       0.58      0.58      0.58       243
+#            1       0.56      0.56      0.56       231
+# 
+#     accuracy                           0.57       474
+#    macro avg       0.57      0.57      0.57       474
+# weighted avg       0.57      0.57      0.57       474
+# 
+# >>> print('Não Cartola')
+# Não Cartola
+# >>> preditivo_simple(n_cartola)
+# Optimization terminated successfully.
+#          Current function value: 0.335488
+#          Iterations 13
+# Optimization terminated successfully.
+#          Current function value: 0.350842
+#          Iterations 13
+# const                   0.169647
+# pviews                  1.003242
+# futebol_intenacional    1.000277
+# blog_cartola            1.016878
+# volei                   0.999266
+# device_pc_e_m           2.407832
+# device_m                2.126595
+# Name: multiplicador, dtype: float64
+#               precision    recall  f1-score   support
+# 
+#            0       0.78      0.98      0.87       323
+#            1       0.97      0.73      0.83       324
+# 
+#     accuracy                           0.85       647
+#    macro avg       0.87      0.85      0.85       647
+# weighted avg       0.87      0.85      0.85       647
+ 
 
-# Dividindo o dataset em treino e teste
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+# %% Análise exploratória
+# Cartola Free (idade, blog_cartola, home_olimpiadas, device_pc_e_m)
+# cartola_status vs idade
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='idade', data=cartola_free, ax=ax)
+ax.set_title('Idade vs Cartola Status (Cartola Free)')
+plt.show()
 
-# Para obter a significância dos coeficientes, usamos statsmodels
-X_const = sm.add_constant(X_train)  # Adicionar uma constante para o intercepto
-modelo_stats = sm.Logit(y_train, X_const).fit()
-# print(modelo_stats.summary())
-# """
-#                            Results: Logit
-# =====================================================================
-# Model:               Logit             Method:            MLE        
-# Dependent Variable:  y                 Pseudo R-squared:  0.516      
-# Date:                2024-10-18 22:33  AIC:               1057.1621  
-# No. Observations:    1507              BIC:               1179.4733  
-# Df Model:            22                Log-Likelihood:    -505.58    
-# Df Residuals:        1484              LL-Null:           -1044.6    
-# Converged:           1.0000            LLR p-value:       4.8214e-214
-# No. Iterations:      13.0000           Scale:             1.0000     
-# ---------------------------------------------------------------------
-#                       Coef.  Std.Err.    z     P>|z|   [0.025  0.975]
-# ---------------------------------------------------------------------
-# const                -1.8545   0.1465 -12.6588 0.0000 -2.1416 -1.5674
-# dias                  0.0423   0.0246   1.7218 0.0851 -0.0059  0.0905
-# pviews                0.0099   0.0034   2.9324 0.0034  0.0033  0.0166
-# visitas              -0.0264   0.0140  -1.8852 0.0594 -0.0539  0.0010
-# tempo_total          -0.0000   0.0000  -0.5230 0.6010 -0.0001  0.0000
-# futebol               0.0000   0.0000   0.0081 0.9936 -0.0001  0.0001
-# futebol_intenacional  0.0006   0.0002   3.6676 0.0002  0.0003  0.0009
-# futebol_olimpico      0.0000   0.0000   0.2880 0.7734 -0.0001  0.0001
-# blog_cartola          0.0163   0.0016   9.9339 0.0000  0.0131  0.0196
-# atletismo             0.0001   0.0001   1.1159 0.2645 -0.0000  0.0002
-# ginastica            -0.0001   0.0001  -1.5544 0.1201 -0.0003  0.0000
-# judo                 -0.0000   0.0001  -0.2488 0.8035 -0.0001  0.0001
-# natacao              -0.0002   0.0001  -1.6084 0.1078 -0.0004  0.0000
-# basquete              0.0001   0.0000   1.4906 0.1361 -0.0000  0.0001
-# handebol              0.0000   0.0001   0.0487 0.9612 -0.0002  0.0002
-# volei                -0.0006   0.0002  -2.6806 0.0073 -0.0010 -0.0002
-# tenis                 0.0001   0.0001   0.8930 0.3718 -0.0001  0.0003
-# canoagem              0.0000   0.0002   0.2785 0.7807 -0.0003  0.0003
-# saltos_ornamentais   -0.0003   0.0002  -1.2203 0.2224 -0.0007  0.0002
-# home                  0.0000   0.0000   0.7689 0.4419 -0.0000  0.0001
-# home_olimpiadas      -0.0001   0.0001  -1.7366 0.0825 -0.0003  0.0000
-# device_pc_e_m         0.9705   0.1996   4.8613 0.0000  0.5792  1.3618
-# device_m              0.7533   0.2000   3.7673 0.0002  0.3614  1.1452
-# =====================================================================
-# """
+# %% cartola_status vs blog_cartola
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='blog_cartola', data=cartola_free, ax=ax)
+ax.set_title('Blog Cartola vs Cartola Status (Cartola Free)')
+plt.show()
 
-# Filtrando as variáveis com P > 0.05 para deixar o modelo mais simples
-summary_df = modelo_stats.summary2().tables[1]
-p_values = summary_df[summary_df['P>|z|'] < 0.05]
-p_values = p_values.copy()
-p_values.loc[:,'multiplicador'] = p_values.loc[:,'Coef.'].map(numpy.exp)
-p_values = p_values.loc[:,['multiplicador', 'P>|z|']]
-print(p_values)
-# >>> print(p_values)
-#                       multiplicador         P>|z|
-# const                      0.156533  1.000518e-36
-# pviews                     1.009988  3.363690e-03
-# futebol_intenacional       1.000613  2.448809e-04
-# blog_cartola               1.016467  2.964677e-23
-# volei                      0.999410  7.349506e-03
-# device_pc_e_m              2.639331  1.166291e-06
-# device_m                   2.124016  1.650119e-04
-significant_features = p_values.index.tolist()
+# %% cartola_status vs home_olimpiadas
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='home_olimpiadas', data=cartola_free, ax=ax)
+ax.set_title('Home Olimpíadas vs Cartola Status (Cartola Free)')
+plt.show()
 
-# Para obter a significância dos coeficientes, usamos statsmodels
-X_const = sm.add_constant(X_train)  # Adicionar uma constante para o intercepto
-modelo_stats = sm.Logit(y_train, X_const[significant_features]).fit()
-print(modelo_stats.summary2())
+# %% cartola_status vs device_pc_e_m
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='device_pc_e_m', data=cartola_free, ax=ax)
+ax.set_title('Device PC e M vs Cartola Status (Cartola Free)')
+plt.show()
 
-# Ajustando o modelo de regressão logística
-model = LogisticRegression()
-model.fit(X_train, y_train)
+# Não Cartola (pviews, futebol_intenacional, blog_cartola, volei, device_pc_e_m, device_m)
+# %% cartola_status vs pviews
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='pviews', data=n_cartola, ax=ax)
+ax.set_title('Pviews vs Cartola Status (Não Cartola)')
+plt.show()
 
-# Fazendo previsões
-y_pred = modelo_stats.predict(sm.add_constant(X_test))
+# %% cartola_status vs futebol_intenacional
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='futebol_intenacional', data=n_cartola, ax=ax)
+ax.set_title('Futebol Internacional vs Cartola Status (Não Cartola)')
+plt.show()
 
-# Avaliando o modelo
-print(confusion_matrix(y_test, y_pred))
-print(classification_report(y_test, y_pred))
-# Exibindo os coeficientes do modelo
-coefficients = pd.DataFrame(model.coef_[0], X.columns, columns=['Coefficient'])
-print(coefficients)
+# %% cartola_status vs blog_cartola
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='blog_cartola', data=n_cartola, ax=ax)
+ax.set_title('Blog Cartola vs Cartola Status (Não Cartola)')
+plt.show()
+
+# %% cartola_status vs volei
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='volei', data=n_cartola, ax=ax)
+ax.set_title('Volei vs Cartola Status (Não Cartola)')
+plt.show()
+
+# %% cartola_status vs device_pc_e_m
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='device_pc_e_m', data=n_cartola, ax=ax)
+ax.set_title('Device PC e M vs Cartola Status (Não Cartola)')
+plt.show()
+
+# %% cartola_status vs device_m
+fig, ax = plt.subplots()
+sns.violinplot(x='cartola_status', y='device_m', data=n_cartola, ax=ax)
+ax.set_title('Device M vs Cartola Status (Não Cartola)')
+plt.show()
