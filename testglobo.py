@@ -178,10 +178,12 @@ def preditivo_simple(dataset: pd.DataFrame, var_interesse:str = 'cartola_status'
     # Avaliando o modelo
     print(f"{multiplicador.loc[:,'multiplicador']}\n{classification_report(y_test, y_pred)}")
 
-print('Cartola Free')
-preditivo_simple(cartola_free)
-print('Não Cartola')
-preditivo_simple(n_cartola)
+# %% Cartola Free
+print(f"Cartola Free\n{preditivo_simple(cartola_free)}")
+
+# %% Não Cartola
+print(f"Não Cartola\n{preditivo_simple(n_cartola)}")
+
 # 
 # >>> print('Cartola Free')
 # Cartola Free
@@ -236,6 +238,21 @@ preditivo_simple(n_cartola)
 
 # %% Análise exploratória
 # Cartola Free (idade, blog_cartola, home_olimpiadas, device_pc_e_m)
+# percentual de usuários que assinaram o Cartola Pro por idade
+df_analise = cartola_free.loc[:, ['idade', 'cartola_status']]
+df_analise['cartola_status'] = df_analise['cartola_status'].cat.codes
+df_analise.groupby('idade').aggregate({'cartola_status': 'mean'}).plot()
+plt.title('Percentual de usuários que assinaram o Cartola Pro por idade (Cartola Free)')
+plt.show()
+
+# %% # percentual de usuários que assinaram o Cartola Pro por blog_cartola
+
+df_analise = cartola_free.loc[:, ['blog_cartola', 'cartola_status']]
+df_analise['cartola_status'] = df_analise['cartola_status'].cat.codes
+df_analise.groupby('blog_cartola').aggregate({'cartola_status': 'mean'}).plot()
+plt.title('Percentual de usuários que assinaram o Cartola Pro por blog_cartola (Cartola Free)')
+plt.show()
+# %%
 # cartola_status vs idade
 fig, ax = plt.subplots()
 sns.violinplot(x='cartola_status', y='idade', data=cartola_free, ax=ax)
@@ -254,10 +271,18 @@ sns.violinplot(x='cartola_status', y='home_olimpiadas', data=cartola_free, ax=ax
 ax.set_title('Home Olimpíadas vs Cartola Status (Cartola Free)')
 plt.show()
 
-# %% cartola_status vs device_pc_e_m
-fig, ax = plt.subplots()
-sns.violinplot(x='cartola_status', y='device_pc_e_m', data=cartola_free, ax=ax)
-ax.set_title('Device PC e M vs Cartola Status (Cartola Free)')
+# %% percentual de usuários que assinaram o Cartola Pro por device
+df_analise = df.loc[df['cartola_status'] != 'Não Cartola', [ 'device','cartola_status']].dropna()
+valores = df_analise['cartola_status'].value_counts(dropna = False)
+df_analise = df_analise.groupby(['cartola_status']).sample(n = min(list(valores)), random_state = 42)
+df_analise['cartola_status'] = df_analise['cartola_status'].astype('category')
+if list(n_cartola['cartola_status'].cat.categories) != ['Não Cartola', 'Cartola Pro']:
+    n_cartola['cartola_status'] = n_cartola['cartola_status'].cat.reorder_categories(
+        ['Não Cartola', 'Cartola Pro'], 
+        ordered=True)
+df_analise['cartola_status'] = df_analise['cartola_status'].cat.codes
+df_analise.groupby('device').aggregate({'cartola_status': 'mean'}).plot(kind='bar')
+plt.title('Percentual de usuários que assinaram o Cartola Pro por device')
 plt.show()
 
 # Não Cartola (pviews, futebol_intenacional, blog_cartola, volei, device_pc_e_m, device_m)
@@ -296,3 +321,20 @@ fig, ax = plt.subplots()
 sns.violinplot(x='cartola_status', y='device_m', data=n_cartola, ax=ax)
 ax.set_title('Device M vs Cartola Status (Não Cartola)')
 plt.show()
+
+# %% percentual de usuários que assinaram o Cartola Pro por device
+df_analise = df.loc[df['cartola_status'] != 'Cartola Free', [ 'device','cartola_status']].dropna()
+valores = df_analise['cartola_status'].value_counts(dropna = False)
+df_analise = df_analise.groupby(['cartola_status']).sample(n = min(list(valores)), random_state = 42)
+df_analise['cartola_status'] = df_analise['cartola_status'].astype('category')
+if list(df_analise['cartola_status'].cat.categories) != ['Não Cartola', 'Cartola Pro']:
+    df_analise['cartola_status'] = df_analise['cartola_status'].cat.reorder_categories(
+        ['Não Cartola', 'Cartola Pro'], 
+        ordered=True)
+df_analise['cartola_status'] = df_analise['cartola_status'].cat.codes
+df_analise.groupby('device').aggregate({'cartola_status': 'mean'}).plot(kind='bar')
+plt.title('Percentual de usuários que assinaram o Cartola Pro por device')
+plt.show()
+
+
+# %%
